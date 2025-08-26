@@ -165,7 +165,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(CYLLENE_DEPENDENCIES)lib/$(PlatformTarget)/;$(SolutionDir)lib/$(PlatformTarget)/;$(DEVLIBS)curl/lib/$(PlatformTarget)/</AdditionalLibraryDirectories>
-      <AdditionalDependencies>opengl32.lib;libcurl.lib;SDL.lib</AdditionalDependencies>
+      <AdditionalDependencies>opengl32.lib;libcurl.lib;SDL3.lib</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -211,7 +211,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(CYLLENE_DEPENDENCIES)lib/$(PlatformTarget)/;$(SolutionDir)lib/$(PlatformTarget)/;$(DEVLIBS)curl/lib/$(PlatformTarget)/</AdditionalLibraryDirectories>
-      <AdditionalDependencies>opengl32.lib;libcurl.lib;SDL.lib</AdditionalDependencies>
+      <AdditionalDependencies>opengl32.lib;libcurl.lib;SDL3.lib</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -11,6 +11,13 @@
 
 #include "FileSaver.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <limits.h>
+#include <unistd.h>
+#endif
+
 int main(int argc, char* argv[]) {
   // Setup SDL
   FileSaver fileSaver;
@@ -82,7 +89,6 @@ int main(int argc, char* argv[]) {
 
   // Our state
   ImVec4 clear_color = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
-  bool show_file_dialog = false;
   std::string file_path_name;
   std::string file_path;
 
@@ -90,6 +96,9 @@ int main(int argc, char* argv[]) {
   std::string selected_file;
   std::string selected_path;
   std::string filter = ".*,.psd,.pbd,.jpg,.png,.bmp,.tiff,.tga,.pdf,.doc,.docx,.xls,.xlsx,.zip,.rar";
+  bool showCopiedMessage = false;
+  std::chrono::steady_clock::time_point copyTime;
+  bool auto_scroll = true;
 
   // Main loop
   bool done = false;
@@ -141,12 +150,69 @@ int main(int argc, char* argv[]) {
       {
         ImGui::Text("File Backup Saver");
         ImGui::Separator();
+        if (ImGui::Button("Open Documentation")) {
+          std::filesystem::path exePath;
+#ifdef _WIN32
+          char buffer[MAX_PATH];
+          GetModuleFileNameA(NULL, buffer, MAX_PATH);
+          exePath = { buffer };
+          exePath = exePath.parent_path();
+#else
+          char buffer[PATH_MAX];
+          ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+          if (len != -1) {
+            buffer[len] = '\0';
+            exePath = std::filesystem::path(buffer).parent_path();
+          }
+          // Fallback: current working directory
+          exePath = std::filesystem::current_path();
+#endif
+
+          std::filesystem::path pdfPath = exePath / "documentation.pdf";
+
+          if (!std::filesystem::exists(pdfPath)) {
+            std::cerr << "PDF file not found: " << pdfPath << std::endl;
+            // You could use ImGui to show an error message instead
+          }
+
+          // Platform-specific open commands
+          std::string command;
+
+#ifdef _WIN32
+          command = "start \"\" \"" + pdfPath.string() + "\"";
+#elif __APPLE__
+          command = "open \"" + pdfPath.string() + "\"";
+#else // Linux and other UNIX-like systems
+          command = "xdg-open \"" + pdfPath.string() + "\"";
+#endif
+
+          // Execute the command
+          int result = std::system(command.c_str());
+
+          if (result != 0) {
+            std::cerr << "Failed to open PDF file. Command: " << command << std::endl;
+            std::cerr << "System returned: " << result << std::endl;
+          }
+        }
+
+        if (ImGui::IsItemHovered()) {
+          ImGui::SetTooltip("Click to open the documentation PDF file");
+        }
+
+        ImGui::SameLine();
+        
         if (ImGui::Button("Open File")) {
           IGFD::FileDialogConfig config;
           config.path = ".";
           ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", filter.c_str(), config);
         }
+        
+        if (ImGui::IsItemHovered()) {
+          ImGui::SetTooltip("Click to select a file to open");
+        }
+
         ImGui::SameLine();
+        
         if (!file_path_name.empty()) {
           ImGui::Text("Selected File: %s", file_path_name.c_str());
           ImGui::Text("File Path: %s", file_path.c_str());
@@ -171,15 +237,31 @@ int main(int argc, char* argv[]) {
                            "%1.0f");
         ImGui::PopItemWidth();
 
+        if (ImGui::IsItemHovered()) {
+          ImGui::SetTooltip("Click to select how many seconds between save");
+        }
+
         std::string buttonLabel = (!fileSaver.m_isSaving ? "Start" : "Stop");
+        std::string buttonLocalLabel = (!fileSaver.m_isSavingOnlyLocal ? "Start ONLY LOCAL" : "Stop ONLY LOCAL");
         buttonLabel += " Saving";
+        buttonLocalLabel += " Saving";
         ImGui::Separator();
 
         ImGui::Text("Backblaze B2 Cloud Storage Configuration");
         ImGui::PushItemWidth(ImGui::GetWindowWidth() / 2);
         ImGui::InputText("Backblaze Key ID", &fileSaver.m_b2Credentials.accountId);
+        if (ImGui::IsItemHovered()) {
+          ImGui::SetTooltip("This is obtained when creating an application key called keyID");
+        }
         ImGui::InputText("Backblaze Application Key", &fileSaver.m_b2Credentials.applicationKey);
+
+        if (ImGui::IsItemHovered()) {
+          ImGui::SetTooltip("This is obtained when creating an application key called applicationKey");
+        }
         ImGui::InputText("Bucket Name", &fileSaver.m_b2Credentials.bucketName);
+        if (ImGui::IsItemHovered()) {
+          ImGui::SetTooltip("This is the name of your bucket");
+        }
         ImGui::PopItemWidth();
 
         ImGui::Separator();
@@ -195,6 +277,10 @@ int main(int argc, char* argv[]) {
           else {
             fileSaver.m_logger += "Backblaze B2 authentication failed!\n";
           }
+        }
+
+        if (ImGui::IsItemHovered()) {
+          ImGui::SetTooltip(!wasAuthenticated ? "Click to authenticate" : "User has been already authenticated");
         }
 
         if (wasAuthenticated) {
@@ -222,6 +308,8 @@ int main(int argc, char* argv[]) {
           }
         }
 
+
+
         if (!fileSaver.m_isFilePathSet || !fileSaver.m_b2Credentials.isAuthenticated) {
           ImGui::EndDisabled();
           ImGui::SameLine();
@@ -233,20 +321,80 @@ int main(int argc, char* argv[]) {
           }
         }
 
+        ImGui::SameLine();
+
+        if (!fileSaver.m_isFilePathSet) {
+          ImGui::BeginDisabled();
+        }
+
+        if (ImGui::Button(buttonLocalLabel.c_str(), ImVec2(120, 40))) {
+          fileSaver.setSaveOnlyLocalFileThread(!fileSaver.m_isSavingOnlyLocal);
+          if (fileSaver.m_isSavingOnlyLocal) {
+            fileSaver.m_logger += "Backup ONLY LOCAL process started\n";
+          }
+          else {
+            fileSaver.m_logger += "Backup ONLY LOCAL process stopped\n";
+          }
+        }
+
+        if (!fileSaver.m_isFilePathSet) {
+          ImGui::EndDisabled();
+        }
+
+        ImGui::Text("Either Use the Only Local or the BackBlaze. \n I have no idea what happens if you use both at the same time");
+
         ImGui::Separator();
         ImGui::Text("Logger:");
         ImGui::BeginChild("ScrollingText", ImVec2(0, 0), true,
           ImGuiWindowFlags_HorizontalScrollbar |
           ImGuiWindowFlags_AlwaysVerticalScrollbar);
-        ImGui::TextWrapped("%s", fileSaver.m_logger.c_str());
+
+        // Store the text for potential copying
+        std::string fullLogText = fileSaver.m_logger;
+
+        // Check if the child window is clicked
+        if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+          // Copy the entire log text to clipboard
+          ImGui::SetClipboardText(fullLogText.c_str());
+
+          // Optional: Provide visual feedback
+          // You can set a flag to show a temporary message
+          showCopiedMessage = true;
+          copyTime = std::chrono::steady_clock::now();
+        }
+
+        ImGui::TextWrapped("%s", fullLogText.c_str());
 
         // Auto-scroll to bottom if new text was added
-        static bool auto_scroll = true;
         if (auto_scroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f) {
           ImGui::SetScrollHereY(1.0f);
         }
 
         ImGui::EndChild();
+
+
+        if (showCopiedMessage) {
+          auto now = std::chrono::steady_clock::now();
+          auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - copyTime).count();
+
+          if (elapsed < 2) { // Show for 2 seconds
+            ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.8f),
+              ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+            ImGui::SetNextWindowBgAlpha(0.8f);
+            ImGui::Begin("##CopiedMessage", nullptr,
+              ImGuiWindowFlags_NoDecoration |
+              ImGuiWindowFlags_AlwaysAutoResize |
+              ImGuiWindowFlags_NoSavedSettings |
+              ImGuiWindowFlags_NoFocusOnAppearing |
+              ImGuiWindowFlags_NoNav);
+
+            ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Copied to clipboard");
+            ImGui::End();
+          }
+          else {
+            showCopiedMessage = false;
+          }
+        }
 
       }
       ImGui::EndChild();

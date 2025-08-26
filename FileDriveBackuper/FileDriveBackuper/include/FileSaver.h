@@ -215,7 +215,7 @@ struct BackblazeCredentials
     return result;
   }
 
-  bool createBucket(const std::string& bucketName) {
+  bool createBucket(const std::string& newBucketName) {
     if (!isAuthenticated) {
       std::cerr << "Not authenticated. Call authenticate() first." << std::endl;
       return false;
@@ -223,8 +223,8 @@ struct BackblazeCredentials
 
     // Check if we already have a bucket from the authentication response
     if (!bucketId.empty()) {
-      std::cout << "Bucket already available: " << bucketName << " (ID: " << bucketId << ")" << std::endl;
-      this->bucketName = bucketName;
+      std::cout << "Bucket already available: " << newBucketName << " (ID: " << bucketId << ")" << std::endl;
+      this->bucketName = newBucketName;
       return true;
     }
 
@@ -232,7 +232,7 @@ struct BackblazeCredentials
     doc.SetObject();
     rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
 
-    doc.AddMember("bucketName", rapidjson::Value(bucketName.c_str(), allocator), allocator);
+    doc.AddMember("bucketName", rapidjson::Value(newBucketName.c_str(), allocator), allocator);
     doc.AddMember("bucketType", "allPrivate", allocator);
 
     rapidjson::StringBuffer buffer;
@@ -255,7 +255,7 @@ struct BackblazeCredentials
 
     if (responseDoc.HasMember("bucketId")) {
       bucketId = responseDoc["bucketId"].GetString();
-      this->bucketName = bucketName;
+      this->bucketName = newBucketName;
       std::cout << "Bucket created successfully: " << bucketId << std::endl;
       return true;
     }
@@ -487,6 +487,25 @@ public:
     return false;
   }
 
+  void saveFileOnlyLocal() {
+    while (m_isSavingOnlyLocal) {
+      try {
+        if (!m_isFilePathSet) {
+          m_logger += "File path not set\n";
+          continue;
+        }
+        // Make local copy
+        makeLocalCopy();
+      }
+      catch (const std::exception& e) {
+        m_logger += std::string("Error: ") + e.what() + "\n";
+      }
+
+      // Sleep for the specified interval
+      std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(m_saveInterval * 1000)));
+    }
+  }
+
   void saveFile() {
     while (m_isSaving) {
       try {
@@ -530,6 +549,21 @@ public:
     }
   }
 
+  void setSaveOnlyLocalFileThread(bool set) {
+    if (set && !m_isSavingOnlyLocal) {
+      m_isSavingOnlyLocal = true;
+      m_onlyLocalFileSaver = std::make_unique<std::thread>(&FileSaver::saveFileOnlyLocal, this);
+      m_onlyLocalFileSaver->detach();
+    }
+    else if (!set && m_isSavingOnlyLocal) {
+      m_isSavingOnlyLocal = false;
+      if (m_onlyLocalFileSaver && m_onlyLocalFileSaver->joinable()) {
+        m_onlyLocalFileSaver->join();
+      }
+      m_onlyLocalFileSaver.reset();
+    }
+  }
+
   static std::string calculateFileSha1(const std::string& filepath) {
     std::ifstream file(filepath, std::ios::binary);
     if (!file) {
@@ -562,7 +596,9 @@ public:
   std::filesystem::path m_filePath;
   std::string m_fileContent;
   std::unique_ptr<std::thread> m_fileSaver;
+  std::unique_ptr<std::thread> m_onlyLocalFileSaver;
   std::string m_logger;
   float m_saveInterval = 300.0f; // seconds
   bool m_isSaving = false;
+  bool m_isSavingOnlyLocal = false;
 };
